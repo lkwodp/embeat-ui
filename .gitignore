@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Logs
+*.log
+logs/
+
+# Local configuration
+.env
+.env.local
+
+# Runtime data (user accounts, encrypted credentials, caches)
+data/kugou_credentials.json
+data/.disabled_credentials.json
+data/music_metadata_cache.json
+data/music_metadata_cache.*.json
+data/embeat.db
+data/embeat.db-*
+data/secret.key
+# Contains both the encrypted database and its decryption key.
+data/backups/
