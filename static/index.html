@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Embeat Music Discovery</title>
+  <link rel="icon" type="image/svg+xml" href="/logo.svg">
+  <script>
+    (() => {
+      try {
+        const theme = localStorage.getItem('embeat_ui_theme_v1');
+        if (['auto', 'studio', 'night', 'ocean', 'contrast', 'forest', 'berry', 'graphite', 'solar'].includes(theme)) document.documentElement.dataset.theme = theme;
+        else document.documentElement.dataset.theme = 'auto';
+      } catch (error) { /* localStorage may be unavailable */ }
+    })();
+  </script>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand-row">
+        <a class="brand" href="/">
+          <img class="brand-mark" src="/logo.svg" alt="Embeat logo" width="38" height="38">
+          <div><strong>Embeat</strong><small>Music Discovery</small></div>
+        </a>
+        <div class="theme-picker" data-theme-picker><button class="theme-picker-button" type="button" title="切换界面主题" aria-label="切换界面主题" aria-haspopup="menu" aria-expanded="false"><span aria-hidden="true">◐</span></button><div class="theme-menu hidden" role="menu" aria-label="界面主题"></div></div>
+      </div>
+
+      <form id="search-form" class="search-form">
+        <label for="track-name">歌曲</label>
+        <div class="input-wrap">
+          <span aria-hidden="true">⌕</span>
+          <input id="track-name" name="track-name" placeholder="小幸运" autocomplete="off" required>
+        </div>
+        <label for="artist-name">艺人 <small>可选</small></label>
+        <div class="input-wrap">
+          <span aria-hidden="true">♪</span>
+          <input id="artist-name" name="artist-name" placeholder="田馥甄" autocomplete="off">
+        </div>
+        <button id="search-button" class="primary-button" type="submit">搜索歌曲</button>
+      </form>
+
+      <div class="divider"><span>或</span></div>
+
+      <form id="id-form" class="id-form">
+        <label for="track-id">Spotify Track ID</label>
+        <div class="input-wrap mono-input">
+          <span aria-hidden="true">#</span>
+          <input id="track-id" name="track-id" placeholder="1ZeVIrCWzEmsJexkrgvjFv" autocomplete="off">
+        </div>
+        <button class="secondary-button" type="submit">直接推荐</button>
+      </form>
+
+      <div class="service-status" id="service-status">
+        <span class="status-dot"></span>
+        <div><strong>正在连接</strong><small>Qdrant</small></div>
+      </div>
+      <div class="sidebar-tools">
+        <button id="history-open" class="sidebar-tool" type="button">最近记录</button>
+        <button id="history-export" class="sidebar-tool" type="button">导出历史 JSON</button>
+        <a class="sidebar-tool" href="/settings">平台账号配置</a>
+      </div>
+      <div class="discover-tools">
+        <a class="discover-button discover-link" href="/radio">歌单电台</a>
+        <button id="weekly-discover" class="discover-button" type="button">每周新发现</button>
+        <div class="genre-browser">
+          <select id="genre-select"><option value="">按流派找歌</option></select>
+          <button id="genre-browse" type="button">浏览</button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow" id="view-eyebrow">歌曲搜索</p>
+          <h1 id="view-title">选择一首歌</h1>
+        </div>
+        <div class="topbar-meta" id="topbar-meta"></div>
+      </header>
+
+      <section id="empty-state" class="empty-state">
+        <div class="record-visual" aria-hidden="true">
+          <div class="record"><div class="record-label"><span></span></div></div>
+          <div class="sound-bars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        </div>
+        <h2>从一首熟悉的歌开始</h2>
+        <p>输入曲名，选择数据库中的准确版本。</p>
+      </section>
+
+      <section id="candidate-view" class="content-view hidden" aria-live="polite">
+        <div class="section-heading">
+          <div><h2>搜索结果</h2><p id="candidate-summary"></p></div>
+          <div class="recommend-actions">
+            <select id="candidate-page-size" class="compact-select" aria-label="搜索结果每页数量"><option value="5">每页 5 条</option><option value="10" selected>每页 10 条</option><option value="20">每页 20 条</option></select>
+            <button id="multi-seed-button" class="netease-button" type="button">用选中歌曲生成电台</button>
+          </div>
+        </div>
+        <div id="candidate-list" class="candidate-list"></div>
+        <div id="candidate-pagination" class="pagination"></div>
+      </section>
+
+      <section id="recommend-view" class="content-view hidden" aria-live="polite">
+        <div id="seed-panel" class="seed-panel"></div>
+        <div class="section-heading recommendations-heading">
+          <div><h2>推荐歌曲</h2><p id="recommend-summary"></p></div>
+          <div class="recommend-actions">
+            <label class="select-all"><input id="select-all" type="checkbox" checked> 全选</label>
+            <select id="result-limit" class="compact-select" aria-label="推荐总数"><option value="20">获取 20 首</option><option value="50">获取 50 首</option></select>
+            <select id="result-page-size" class="compact-select" aria-label="推荐结果每页数量"><option value="5">每页 5 条</option><option value="10" selected>每页 10 条</option><option value="20">每页 20 条</option></select>
+            <select id="result-sort" class="compact-select"><option value="score">按匹配度</option><option value="popularity">按热度</option><option value="seed_hits">按种子覆盖</option></select>
+            <button id="netease-open" class="netease-button" type="button">保存到歌单</button>
+          </div>
+        </div>
+        <div id="result-filters" class="result-filters">
+          <span>来源</span><div id="source-filters" class="filter-chips"></div>
+          <span>流派</span><div id="genre-filters" class="filter-chips"></div>
+          <label class="popularity-filter">最低热度 <input id="popularity-min" type="range" min="0" max="100" value="0"><b id="popularity-value">0</b></label>
+        </div>
+        <div class="result-table-wrap">
+          <table class="result-table">
+            <thead><tr><th>选择</th><th>数据库名称</th><th>简体中文显示</th><th>专辑</th><th>召回来源</th><th>匹配度</th><th></th></tr></thead>
+            <tbody id="result-list"></tbody>
+          </table>
+        </div>
+        <div id="result-cards" class="result-cards"></div>
+        <div id="pagination" class="pagination"></div>
+      </section>
+
+      <section id="history-view" class="content-view hidden" aria-live="polite">
+        <div class="section-heading"><div><h2>最近记录</h2><p>保存在当前浏览器中</p></div></div>
+        <div id="history-list" class="history-list"></div>
+      </section>
+
+      <section id="loading-state" class="loading-state hidden" aria-live="polite">
+        <div class="loader"></div><strong id="loading-title">正在查询</strong><span id="loading-detail">连接 4500 万首歌曲</span>
+      </section>
+
+      <div id="toast" class="toast hidden" role="alert"></div>
+    </main>
+  </div>
+
+  <div id="netease-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="netease-title">
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-card">
+      <div class="modal-header">
+        <div><p class="eyebrow">Playlist Export</p><h2 id="netease-title">保存到歌单</h2></div>
+        <button class="modal-close" type="button" data-close-modal aria-label="关闭">×</button>
+      </div>
+      <div class="modal-section export-target-section">
+        <strong>保存目标</strong>
+        <div id="export-target" class="segmented-control" role="radiogroup" aria-label="保存目标">
+          <label><input type="radio" name="export-target" value="netease" checked><span>网易云</span></label>
+          <label><input type="radio" name="export-target" value="kugou"><span>酷狗</span></label>
+          <label><input type="radio" name="export-target" value="both"><span>两个都保存</span></label>
+        </div>
+      </div>
+      <div id="netease-auth" class="modal-section platform-panel" data-export-platform="netease">
+        <div class="platform-heading"><strong>网易云音乐</strong><small>需要连接兼容 API</small></div>
+        <label for="netease-api">兼容 API 地址</label>
+        <input id="netease-api" class="light-input" placeholder="https://your-netease-api.example.com" autocomplete="off">
+        <label for="netease-proxy">本机 HTTP 代理 <small>直连被拦截时使用</small></label>
+        <input id="netease-proxy" class="light-input" placeholder="http://127.0.0.1:8080 可留空" autocomplete="off">
+        <label for="netease-cookie">网易云 Cookie</label>
+        <textarea id="netease-cookie" class="light-input cookie-input" placeholder="MUSIC_U=...; __csrf=..." autocomplete="off"></textarea>
+        <p class="security-note">Cookie 保存在当前浏览器中，用于 UI 服务重启后自动恢复登录。</p>
+        <button id="netease-connect" class="primary-button modal-primary" type="button">校验并连接</button>
+      </div>
+      <div id="netease-export" class="modal-section platform-panel hidden" data-export-platform="netease">
+        <div class="platform-heading"><strong>网易云音乐</strong><small>目标歌单</small></div>
+        <div class="account-strip"><span class="status-dot"></span><strong>已连接</strong><small>UID <span id="netease-uid"></span></small></div>
+        <button id="netease-forget" class="forget-button" type="button">清除浏览器保存的网易云凭据</button>
+        <label for="netease-playlist">目标歌单</label>
+        <div class="playlist-row">
+          <select id="netease-playlist" class="light-input"><option value="NEW">＋ 新建歌单</option></select>
+          <button id="netease-refresh" class="icon-button" type="button" title="刷新歌单">↻</button>
+        </div>
+        <input id="netease-new-name" class="light-input" placeholder="Embeat 推荐收藏">
+      </div>
+      <div id="kugou-auth" class="modal-section platform-panel hidden" data-export-platform="kugou">
+        <div class="platform-heading"><strong>酷狗音乐</strong><small>未检测到有效磁盘凭据</small></div>
+        <label for="kugou-api">酷狗兼容 API 地址</label>
+        <input id="kugou-api" class="light-input" placeholder="https://your-kugou-api.example.com" autocomplete="off">
+        <label for="kugou-proxy">本机 HTTP 代理 <small>直连被拦截时使用</small></label>
+        <input id="kugou-proxy" class="light-input" placeholder="http://127.0.0.1:8080 可留空" autocomplete="off">
+        <label for="kugou-cookie">酷狗 Cookie</label>
+        <textarea id="kugou-cookie" class="light-input cookie-input" placeholder="token=...; userid=...; dfid=..." autocomplete="off"></textarea>
+        <p class="security-note">校验成功后写入本机凭据文件，后续重启无需再次输入。</p>
+        <button id="kugou-connect" class="primary-button modal-primary" type="button">校验并保存</button>
+      </div>
+      <div id="kugou-export" class="modal-section platform-panel hidden" data-export-platform="kugou">
+        <div class="platform-heading"><strong>酷狗音乐</strong><small>目标歌单</small></div>
+        <div class="account-strip"><span class="status-dot"></span><strong>已连接</strong><small>UID <span id="kugou-uid"></span></small></div>
+        <label for="kugou-playlist">目标歌单</label>
+        <div class="playlist-row">
+          <select id="kugou-playlist" class="light-input"><option value="NEW">＋ 新建歌单</option></select>
+          <button id="kugou-refresh" class="icon-button" type="button" title="刷新歌单">↻</button>
+        </div>
+        <input id="kugou-new-name" class="light-input" placeholder="Embeat 推荐收藏">
+      </div>
+      <div id="export-controls" class="modal-section export-controls">
+        <div class="export-summary"><strong id="selected-count">0</strong><span>首推荐歌曲待匹配</span></div>
+        <button id="netease-submit" class="primary-button modal-primary" type="button">开始匹配并保存</button>
+      </div>
+      <div id="netease-progress" class="modal-section hidden">
+        <strong class="progress-heading">保存进度</strong>
+        <div id="netease-platform-progress" class="platform-progress">
+          <div class="platform-progress-title"><strong>网易云音乐</strong><span id="netease-progress-phase">等待开始</span></div>
+          <div class="progress-track"><div id="netease-progress-bar" class="progress-bar"></div></div>
+          <div class="progress-meta"><span id="netease-progress-count">0 / 0</span><strong id="netease-progress-percent">0%</strong></div>
+          <p id="netease-progress-current">准备开始</p>
+        </div>
+        <div id="kugou-platform-progress" class="platform-progress hidden">
+          <div class="platform-progress-title"><strong>酷狗音乐</strong><span id="kugou-progress-phase">等待开始</span></div>
+          <div class="progress-track"><div id="kugou-progress-bar" class="progress-bar kugou-progress-bar"></div></div>
+          <div class="progress-meta"><span id="kugou-progress-count">0 / 0</span><strong id="kugou-progress-percent">0%</strong></div>
+          <p id="kugou-progress-current">准备开始</p>
+        </div>
+      </div>
+      <div id="netease-result" class="modal-section hidden"></div>
+    </div>
+  </div>
+  <script src="/auth-gate.js"></script>
+  <script src="/theme-picker.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

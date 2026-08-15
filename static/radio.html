@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>歌单电台 · Embeat</title>
+  <link rel="icon" type="image/svg+xml" href="/logo.svg">
+  <script>
+    (() => {
+      try {
+        const theme = localStorage.getItem('embeat_ui_theme_v1');
+        if (['auto', 'studio', 'night', 'ocean', 'contrast', 'forest', 'berry', 'graphite', 'solar'].includes(theme)) document.documentElement.dataset.theme = theme;
+        else document.documentElement.dataset.theme = 'auto';
+      } catch (error) { /* localStorage may be unavailable */ }
+    })();
+  </script>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body class="radio-page">
+  <div class="app-shell">
+    <aside class="sidebar radio-sidebar">
+      <div class="brand-row"><a class="brand radio-brand" href="/"><img class="brand-mark" src="/logo.svg" alt="Embeat logo" width="38" height="38"><div><strong>Embeat</strong><small>Playlist Radio</small></div></a><div class="theme-picker" data-theme-picker><button class="theme-picker-button" type="button" title="切换界面主题" aria-label="切换界面主题" aria-haspopup="menu" aria-expanded="false"><span aria-hidden="true">◐</span></button><div class="theme-menu hidden" role="menu" aria-label="界面主题"></div></div></div>
+
+      <div class="radio-sidebar-copy">
+        <p class="eyebrow">Radio Builder</p>
+        <h2>歌单电台</h2>
+        <p>网易云音乐 · 酷狗音乐</p>
+      </div>
+
+      <nav class="radio-nav" aria-label="页面导航">
+        <a href="/">返回歌曲推荐</a>
+        <a class="active" href="/radio" aria-current="page">歌单电台</a>
+        <a href="/settings">平台账号配置</a>
+      </nav>
+
+      <div class="service-status" id="radio-service-status">
+        <span class="status-dot"></span>
+        <div><strong>正在连接</strong><small>Qdrant</small></div>
+      </div>
+    </aside>
+
+    <main class="workspace radio-workspace">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Playlist Radio</p>
+          <h1>用歌单生成电台</h1>
+        </div>
+        <div class="topbar-meta"><strong>网易云 + 酷狗</strong><br>均匀抽样 · 多曲融合</div>
+      </header>
+
+      <div class="radio-layout">
+        <section class="radio-card radio-builder" aria-labelledby="radio-builder-title">
+          <div class="section-heading">
+            <div><h2 id="radio-builder-title">选择歌单来源</h2><p>只读取歌单，不会修改原歌单。</p></div>
+          </div>
+
+          <div id="radio-platform" class="segmented-control radio-platform" role="radiogroup" aria-label="歌单平台">
+            <label><input type="radio" name="radio-platform" value="netease" checked><span>网易云音乐</span></label>
+            <label><input type="radio" name="radio-platform" value="kugou"><span>酷狗音乐</span></label>
+          </div>
+
+          <div id="radio-account-status" class="radio-account-status" data-status="loading">
+            <span class="status-dot"></span>
+            <div><strong>正在检查登录状态</strong><small>请稍候</small></div>
+            <button id="radio-status-refresh" type="button">重新检查</button>
+          </div>
+
+          <details id="radio-auth" class="radio-auth hidden">
+            <summary>连接或更新账号凭据</summary>
+            <div class="radio-auth-fields">
+              <label for="radio-api">兼容 API 地址</label>
+              <input id="radio-api" class="light-input" autocomplete="off">
+              <label for="radio-proxy">本机 HTTP 代理 <small>可选</small></label>
+              <input id="radio-proxy" class="light-input" placeholder="http://127.0.0.1:8080 可留空" autocomplete="off">
+              <label for="radio-cookie"><span id="radio-cookie-label">Cookie</span></label>
+              <textarea id="radio-cookie" class="light-input cookie-input" autocomplete="off"></textarea>
+              <p id="radio-auth-note" class="security-note"></p>
+              <button id="radio-connect" class="primary-button" type="button">校验并连接</button>
+            </div>
+          </details>
+
+          <div class="radio-field">
+            <label for="radio-playlist">源歌单</label>
+            <div class="playlist-row">
+              <select id="radio-playlist" class="light-input" disabled><option value="">请先连接平台</option></select>
+              <button id="radio-playlist-refresh" class="icon-button" type="button" title="刷新歌单" disabled>↻</button>
+            </div>
+          </div>
+
+          <div class="radio-options">
+            <label for="radio-seed-limit">最多抽取
+              <select id="radio-seed-limit" class="light-input">
+                <option value="5">5 首种子</option>
+                <option value="10">10 首种子</option>
+                <option value="20">20 首种子</option>
+                <option value="30" selected>30 首种子</option>
+              </select>
+            </label>
+            <label for="radio-result-limit">推荐数量
+              <select id="radio-result-limit" class="light-input">
+                <option value="20">20 首推荐</option>
+                <option value="50" selected>50 首推荐</option>
+              </select>
+            </label>
+          </div>
+
+          <button id="radio-generate" class="primary-button radio-generate" type="button" disabled>生成歌单电台</button>
+
+          <div id="radio-progress" class="radio-progress hidden" aria-live="polite">
+            <div class="platform-progress-title"><strong id="radio-progress-phase">准备读取歌单</strong><span id="radio-progress-percent">0%</span></div>
+            <div class="progress-track"><div id="radio-progress-bar" class="progress-bar"></div></div>
+            <p id="radio-progress-detail">正在准备</p>
+          </div>
+        </section>
+
+        <aside class="radio-card radio-overview">
+          <p class="eyebrow">Current Session</p>
+          <h2 id="radio-overview-title">等待选择歌单</h2>
+          <dl>
+            <div><dt>平台</dt><dd id="radio-overview-platform">网易云音乐</dd></div>
+            <div><dt>源歌单</dt><dd id="radio-overview-playlist">未选择</dd></div>
+            <div><dt>种子上限</dt><dd id="radio-overview-seeds">30 首</dd></div>
+            <div><dt>推荐数量</dt><dd id="radio-overview-results">50 首</dd></div>
+          </dl>
+          <div class="radio-privacy-note"><strong>源歌单只读</strong><p>保存推荐歌曲仍由主页面单独确认。</p></div>
+        </aside>
+      </div>
+
+      <section id="radio-result" class="content-view radio-result hidden" aria-live="polite">
+        <div class="section-heading recommendations-heading">
+          <div><h2>电台已生成</h2><p id="radio-result-summary"></p></div>
+          <button id="radio-open-main" class="netease-button" type="button">在主页面筛选与保存</button>
+        </div>
+        <div id="radio-seed-summary" class="radio-seed-summary"></div>
+        <details id="radio-unmatched-details" class="mapping-details hidden">
+          <summary id="radio-unmatched-summary">未映射歌曲</summary>
+          <div id="radio-unmatched-list" class="mapping-list"></div>
+        </details>
+        <div id="radio-result-list" class="radio-result-list"></div>
+      </section>
+
+      <div id="radio-toast" class="toast hidden" role="alert"></div>
+    </main>
+  </div>
+  <script src="/auth-gate.js"></script>
+  <script src="/theme-picker.js"></script>
+  <script src="/radio.js"></script>
+</body>
+</html>
