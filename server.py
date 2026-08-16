@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import re
+import secrets
 import sys
 import threading
 import time
@@ -1075,6 +1076,10 @@ AUTH_ATTEMPTS_LOCK = threading.Lock()
 CAPTCHA_ATTEMPTS: dict[str, list[float]] = {}
 CAPTCHA_ATTEMPTS_LOCK = threading.Lock()
 
+PAIRING_CODE: str = ""
+if not CONFIG.auth_enabled:
+    PAIRING_CODE = CONFIG.pairing_code or secrets.token_urlsafe(9)
+
 
 def initialize_service() -> None:
     global SERVICE, SERVICE_ERROR
@@ -1114,9 +1119,9 @@ class RequestHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/auth/me":
                 user = self._current_user()
                 if not user:
-                    self._json(401, {"error": "请先登录"})
+                    self._json(401, {"error": "请先登录" if CONFIG.auth_enabled else "请先输入配对码", "auth_enabled": CONFIG.auth_enabled})
                 else:
-                    self._json(200, {"user": user})
+                    self._json(200, {"user": user, "auth_enabled": CONFIG.auth_enabled})
                 return
             if parsed.path == "/api/preferences":
                 user = self._require_user()
@@ -1214,6 +1219,8 @@ class RequestHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         try:
             if parsed.path in ("/api/auth/register", "/api/auth/login"):
+                if not CONFIG.auth_enabled:
+                    raise PermissionError("当前已关闭账号认证，请直接输入配对码")
                 self._check_auth_rate_limit()
                 body = self._read_json()
                 database = require_service().app_db
@@ -1231,12 +1238,28 @@ class RequestHandler(BaseHTTPRequestHandler):
                         self._record_auth_failure()
                         raise ValueError("用户名或密码错误")
                 token = database.create_session(int(user["id"]))
-                self._json(200, {"user": user}, cookie=f"embeat_session={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000")
+                self._json(200, {"user": user, "auth_enabled": True}, cookie=f"embeat_session={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000")
+                return
+            if parsed.path == "/api/device/pair":
+                if CONFIG.auth_enabled:
+                    raise PermissionError("账号认证已开启，无需配对")
+                self._check_auth_rate_limit()
+                body = self._read_json()
+                code = str(body.get("code") or "").strip()
+                if not PAIRING_CODE or not secrets.compare_digest(code, PAIRING_CODE):
+                    self._record_auth_failure()
+                    raise ValueError("配对码无效")
+                user = require_service().app_db.ensure_local_user()
+                token = require_service().app_db.create_device_token(int(user["id"]))
+                self._json(200, {"user": user, "auth_enabled": False}, cookie=f"embeat_device={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=31536000")
                 return
             if parsed.path == "/api/auth/logout":
                 token = self._session_token()
                 if token:
                     require_service().app_db.delete_session(token)
+                device = self._device_token()
+                if device:
+                    require_service().app_db.delete_device_token(device)
                 self._json(200, {"ok": True}, cookie="embeat_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0")
                 return
             user = self._require_user()
@@ -1378,15 +1401,27 @@ class RequestHandler(BaseHTTPRequestHandler):
                 return value
         return ""
 
+    def _device_token(self) -> str:
+        header = self.headers.get("Cookie", "")
+        for part in header.split(";"):
+            key, _, value = part.strip().partition("=")
+            if key == "embeat_device":
+                return value
+        return ""
+
     def _current_user(self) -> dict[str, Any] | None:
         if SERVICE is None:
             return None
+        if not CONFIG.auth_enabled:
+            return SERVICE.app_db.get_user_by_device(self._device_token())
         return SERVICE.app_db.get_user_by_session(self._session_token())
 
     def _require_user(self) -> dict[str, Any]:
         user = self._current_user()
         if not user:
-            raise PermissionError("请先登录")
+            if CONFIG.auth_enabled:
+                raise PermissionError("请先登录")
+            raise PermissionError("请先输入配对码")
         return user
 
     def _check_auth_rate_limit(self) -> None:
@@ -1438,6 +1473,10 @@ def main() -> None:
 
     server = ThreadingHTTPServer((args.host, args.port), RequestHandler)
     threading.Thread(target=initialize_service, name="embeat-init", daemon=True).start()
+    if not CONFIG.auth_enabled:
+        print("=" * 60, flush=True)
+        print(f"账号认证已关闭。请在浏览器输入配对码完成首次配对：{PAIRING_CODE}", flush=True)
+        print("=" * 60, flush=True)
     print(f"Embeat UI is running at http://{args.host}:{args.port}", flush=True)
     if args.host == "0.0.0.0":
         try:

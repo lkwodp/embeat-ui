@@ -88,6 +88,11 @@ class AppDatabase:
                   created_at TEXT NOT NULL,
                   expires_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS device_tokens (
+                  token_hash TEXT PRIMARY KEY,
+                  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                  created_at TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS credentials (
                   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                   platform TEXT NOT NULL,
@@ -222,6 +227,36 @@ class AppDatabase:
     def delete_session(self, token: str) -> None:
         with self.lock, closing(self._connect()) as db, db:
             db.execute("DELETE FROM sessions WHERE token_hash=?", (hashlib.sha256(token.encode()).hexdigest(),))
+
+    def ensure_local_user(self) -> dict[str, Any]:
+        with self.lock, closing(self._connect()) as db, db:
+            row = db.execute("SELECT id,username FROM users WHERE username = ? COLLATE NOCASE", ("local",)).fetchone()
+            if row:
+                return {"id": row["id"], "username": row["username"]}
+            cursor = db.execute("INSERT INTO users(username,password_hash,created_at) VALUES(?,?,?)", ("local", hash_password(secrets.token_urlsafe(24)), utc_now()))
+            return {"id": cursor.lastrowid, "username": "local"}
+
+    def create_device_token(self, user_id: int) -> str:
+        token = secrets.token_urlsafe(32)
+        with self.lock, closing(self._connect()) as db, db:
+            db.execute("INSERT INTO device_tokens(token_hash,user_id,created_at) VALUES(?,?,?)", (hashlib.sha256(token.encode()).hexdigest(), user_id, utc_now()))
+        return token
+
+    def get_user_by_device(self, token: str) -> dict[str, Any] | None:
+        if not token:
+            return None
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        with self.lock, closing(self._connect()) as db, db:
+            row = db.execute("SELECT u.id,u.username FROM device_tokens d JOIN users u ON u.id=d.user_id WHERE d.token_hash=?", (token_hash,)).fetchone()
+            if not row:
+                return None
+            return {"id": row["id"], "username": row["username"]}
+
+    def delete_device_token(self, token: str) -> None:
+        if not token:
+            return
+        with self.lock, closing(self._connect()) as db, db:
+            db.execute("DELETE FROM device_tokens WHERE token_hash=?", (hashlib.sha256(token.encode()).hexdigest(),))
 
     def save_credential(self, user_id: int, platform: str, values: dict[str, Any]) -> None:
         cookie = str(values.get("cookie") or "")

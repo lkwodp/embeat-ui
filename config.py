@@ -29,7 +29,13 @@ _ENV_KEYS = (
     "UI_HOST",
     "UI_PORT",
     "INVITE_CODE",
+    "AUTH_ENABLED",
+    "PAIRING_CODE",
 )
+
+
+def _as_bool(value: object) -> bool:
+    return str(value).strip().casefold() not in ("", "0", "false", "no", "off")
 
 
 def _parse_env_file(path: Path) -> dict[str, str]:
@@ -82,6 +88,8 @@ class Config:
         self.ui_host = str(raw.get("UI_HOST") or "0.0.0.0").strip()
         self.ui_port = _as_int(raw.get("UI_PORT", "8765"), 8765)
         self.invite_code = str(raw.get("INVITE_CODE") or "").strip()
+        self.auth_enabled = _as_bool(raw.get("AUTH_ENABLED", "true"))
+        self.pairing_code = str(raw.get("PAIRING_CODE") or "").strip()
 
     def public_defaults(self) -> dict[str, str]:
         """Non-sensitive defaults exposed to the browser UI."""

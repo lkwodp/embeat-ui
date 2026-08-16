@@ -107,6 +107,19 @@ class AppDatabaseTests(unittest.TestCase):
             self.assertEqual(item["summary"]["seed"]["track_id"], "seed-1")
             self.assertEqual(item["tracks"][0]["track_id"], "result-1")
 
+    def test_device_pairing_flow(self):
+        with temporary_database_root() as root:
+            db = AppDatabase(root)
+            local = db.ensure_local_user()
+            self.assertEqual(db.ensure_local_user()["id"], local["id"])
+            token = db.create_device_token(local["id"])
+            self.assertEqual(db.get_user_by_device(token)["username"], "local")
+            self.assertIsNone(db.get_user_by_device("not-a-real-token"))
+            db.save_credential(local["id"], "netease", {"api_url": "https://example.test", "cookie": "MUSIC_U=secret"})
+            self.assertEqual(db.get_credential(local["id"], "netease")["cookie"], "MUSIC_U=secret")
+            db.delete_device_token(token)
+            self.assertIsNone(db.get_user_by_device(token))
+
 
 if __name__ == "__main__":
     unittest.main()

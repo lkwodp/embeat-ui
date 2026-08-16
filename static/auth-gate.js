@@ -1,15 +1,24 @@
 (function () {
   let currentUser = null;
+  let authEnabled = true;
   let resolver;
   window.embeatAuthReady = new Promise((resolve) => { resolver = resolve; });
 
-  function gate() {
-    let overlay = document.querySelector('#auth-gate');
-    if (overlay) return overlay;
-    overlay = document.createElement('div');
+  function buildGate() {
+    const overlay = document.createElement('div');
     overlay.id = 'auth-gate';
     overlay.className = 'auth-gate hidden';
-    overlay.innerHTML = `
+    const pairMarkup = `
+      <div class="auth-card">
+        <div class="auth-brand"><img src="/logo.svg" width="42" height="42" alt=""><div><strong>Embeat</strong><small>私人音乐推荐空间</small></div></div>
+        <p class="auth-error" style="color: var(--muted);">本服务未开启账号登录，请输入服务器启动时显示的配对码。</p>
+        <form id="auth-form">
+          <label>配对码<input name="pair_code" autocomplete="off" required></label>
+          <p class="auth-error" role="alert"></p>
+          <button class="primary-button" type="submit">配对</button>
+        </form>
+      </div>`;
+    const loginMarkup = `
       <div class="auth-card">
         <div class="auth-brand"><img src="/logo.svg" width="42" height="42" alt=""><div><strong>Embeat</strong><small>私人音乐推荐空间</small></div></div>
         <div class="auth-tabs"><button type="button" data-auth-mode="login" class="active">登录</button><button type="button" data-auth-mode="register">注册</button></div>
@@ -21,9 +30,10 @@
           <button class="primary-button" type="submit">登录</button>
         </form>
       </div>`;
+    overlay.innerHTML = authEnabled ? loginMarkup : pairMarkup;
     document.body.appendChild(overlay);
     let mode = 'login';
-    overlay.querySelector('.auth-tabs').addEventListener('click', (event) => {
+    overlay.querySelector('.auth-tabs')?.addEventListener('click', (event) => {
       const button = event.target.closest('[data-auth-mode]');
       if (!button) return;
       mode = button.dataset.authMode;
@@ -40,12 +50,14 @@
       const error = overlay.querySelector('.auth-error');
       submit.disabled = true; error.textContent = '';
       try {
-        const response = await fetch(`/api/auth/${mode}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(Object.fromEntries(form))});
+        const url = authEnabled ? `/api/auth/${mode}` : '/api/device/pair';
+        const payload = authEnabled ? Object.fromEntries(form) : {code: form.get('pair_code') || ''};
+        const response = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.error || '认证失败');
         currentUser = data.user;
         overlay.classList.add('hidden');
-        showAccount();
+        if (authEnabled) showAccount();
         window.dispatchEvent(new CustomEvent('embeat-authenticated', {detail: currentUser}));
         resolver(currentUser);
       } catch (reason) {
@@ -57,13 +69,20 @@
     return overlay;
   }
 
+  function gate() {
+    let overlay = document.querySelector('#auth-gate');
+    if (overlay) return overlay;
+    return buildGate();
+  }
+
   function showAccount() {
     let account = document.querySelector('#auth-account');
     if (account) return;
     account = document.createElement('div');
     account.id = 'auth-account';
     account.className = 'auth-account';
-    account.innerHTML = `<span>${currentUser ? currentUser.username : ''}</span><button type="button">退出</button>`;
+    const username = currentUser ? currentUser.username : '本机';
+    account.innerHTML = `<span>${username}</span><button type="button">退出</button>`;
     account.querySelector('button').addEventListener('click', () => window.EmbeatAuth.logout());
     (document.querySelector('.sidebar') || document.body).appendChild(account);
   }
@@ -71,9 +90,11 @@
   async function check() {
     try {
       const response = await fetch('/api/auth/me');
-      if (!response.ok) throw new Error('not authenticated');
-      currentUser = (await response.json()).user;
-      showAccount();
+      const data = await response.json().catch(() => ({}));
+      authEnabled = data.auth_enabled !== false;
+      if (!response.ok) throw new Error(data.error || 'not authenticated');
+      currentUser = data.user;
+      if (authEnabled) showAccount();
       resolver(currentUser);
     } catch (error) {
       gate().classList.remove('hidden');
