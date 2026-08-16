@@ -1078,7 +1078,7 @@ CAPTCHA_ATTEMPTS_LOCK = threading.Lock()
 
 PAIRING_CODE: str = ""
 if not CONFIG.auth_enabled:
-    PAIRING_CODE = CONFIG.pairing_code or secrets.token_urlsafe(9)
+    PAIRING_CODE = CONFIG.pairing_code or ""
 
 
 def initialize_service() -> None:
@@ -1117,6 +1117,18 @@ class RequestHandler(BaseHTTPRequestHandler):
                     self._json(200, {"ready": False, "status": "initializing"})
                 return
             if parsed.path == "/api/auth/me":
+                if not CONFIG.auth_enabled and not PAIRING_CODE:
+                    user = SERVICE.app_db.ensure_local_user() if SERVICE else None
+                    if not user:
+                        self._json(503, {"error": "服务初始化中"})
+                        return
+                    existing = SERVICE.app_db.get_user_by_device(self._device_token()) if self._device_token() else None
+                    if existing:
+                        self._json(200, {"user": user, "auth_enabled": False, "open_access": True})
+                    else:
+                        token = SERVICE.app_db.create_device_token(int(user["id"]))
+                        self._json(200, {"user": user, "auth_enabled": False, "open_access": True}, cookie=f"embeat_device={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=31536000")
+                    return
                 user = self._current_user()
                 if not user:
                     self._json(401, {"error": "请先登录" if CONFIG.auth_enabled else "请先输入配对码", "auth_enabled": CONFIG.auth_enabled})
@@ -1243,6 +1255,8 @@ class RequestHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/device/pair":
                 if CONFIG.auth_enabled:
                     raise PermissionError("账号认证已开启，无需配对")
+                if not PAIRING_CODE:
+                    raise PermissionError("当前为开放模式，无需配对")
                 self._check_auth_rate_limit()
                 body = self._read_json()
                 code = str(body.get("code") or "").strip()
@@ -1413,6 +1427,8 @@ class RequestHandler(BaseHTTPRequestHandler):
         if SERVICE is None:
             return None
         if not CONFIG.auth_enabled:
+            if not PAIRING_CODE:
+                return SERVICE.app_db.ensure_local_user()
             return SERVICE.app_db.get_user_by_device(self._device_token())
         return SERVICE.app_db.get_user_by_session(self._session_token())
 
@@ -1474,9 +1490,14 @@ def main() -> None:
     server = ThreadingHTTPServer((args.host, args.port), RequestHandler)
     threading.Thread(target=initialize_service, name="embeat-init", daemon=True).start()
     if not CONFIG.auth_enabled:
-        print("=" * 60, flush=True)
-        print(f"账号认证已关闭。请在浏览器输入配对码完成首次配对：{PAIRING_CODE}", flush=True)
-        print("=" * 60, flush=True)
+        if PAIRING_CODE:
+            print("=" * 60, flush=True)
+            print(f"账号认证已关闭。请在浏览器输入配对码完成首次配对：{PAIRING_CODE}", flush=True)
+            print("=" * 60, flush=True)
+        else:
+            print("=" * 60, flush=True)
+            print("开放模式：未启用账号认证且未设置配对码，所有访客可直接使用。", flush=True)
+            print("=" * 60, flush=True)
     print(f"Embeat UI is running at http://{args.host}:{args.port}", flush=True)
     if args.host == "0.0.0.0":
         try:

@@ -42,8 +42,8 @@ embeat-ui/
 | `UI_HOST` | `0.0.0.0` | 网页服务监听地址 |
 | `UI_PORT` | `8765` | 网页服务端口 |
 | `INVITE_CODE` | 空 | 注册邀请码，留空允许开放注册 |
-| `AUTH_ENABLED` | `true` | 是否启用账号登录/注册；`false` 时改用一次性配对码保护 |
-| `PAIRING_CODE` | 空 | 关闭账号认证时的固定配对码；留空则每次启动随机生成并打印到控制台 |
+| `AUTH_ENABLED` | `true` | 是否启用账号登录/注册；`false` 时访问级别由 `PAIRING_CODE` 决定 |
+| `PAIRING_CODE` | 空 | `AUTH_ENABLED=false` 时的访问控制：留空为开放模式（任何人直接可用，适合公开公益），设为固定码则为配对模式（浏览器首次访问需输入配对码） |
 
 ## 启动
 
@@ -96,7 +96,10 @@ Qdrant 未启动时，脚本会以 `QDRANT_DIR` 下的 `embeat_qdrant_db` 作为
 
 首次访问会显示注册/登录门禁。登录使用 PBKDF2-SHA256 密码哈希和 HttpOnly 会话 Cookie；可通过 `.env` 的 `INVITE_CODE` 开启邀请码注册。网易云 Cookie 和酷狗 Token 只提交到后端，使用 Fernet 加密后写入 `data/embeat.db`，密钥单独保存在 `data/secret.key`，前端和 `localStorage` 均不会保存或回显敏感值。建议仅在可信 LAN 使用，或通过 Tailscale/WireGuard 暴露服务。
 
-设置 `AUTH_ENABLED=false` 可关闭账号登录/注册，改用**设备配对**保护：服务启动时打印一次性配对码（或由 `PAIRING_CODE` 指定），首次访问时浏览器输入配对码后获得一个长期有效的 HttpOnly 设备 Cookie；未完成配对的访客无法读写平台凭据，配对码不随页面下发。
+设置 `AUTH_ENABLED=false` 可关闭账号登录/注册，此时访问级别由 `PAIRING_CODE` 决定：
+
+- **开放模式**（`PAIRING_CODE` 留空）：无需任何认证，访客打开页面即可使用，适合公开公益部署。所有访客共享本地 `local` 用户的凭据与记录。
+- **配对模式**（`PAIRING_CODE` 设为固定码）：浏览器首次访问时需输入配对码，成功后获得长期有效的 HttpOnly 设备 Cookie；未完成配对的访客无法读写平台凭据，配对码不随页面下发。
 
 界面提供 9 种主题模式：跟随系统、录音室浅色、海风蓝调、林间唱片、石墨工作台、日光放映室、深夜黑胶、莓果夜色和高对比。主题及自定义强调色色相会写入当前用户的 SQLite 偏好，同时保留浏览器本地缓存用于首屏无闪烁，并通过 `storage` 事件在同一浏览器的多个标签页间同步。主题菜单内置 WCAG AA 核心文字对比度检查；`auto` 模式会随系统深浅色实时切换。
 
