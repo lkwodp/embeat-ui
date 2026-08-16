@@ -29,21 +29,21 @@ embeat-ui/
 
 复制 `.env.example` 为 `.env`，按需修改；也可直接使用同名环境变量（环境变量优先级更高）。
 
-| 变量 | 默认值 | 说明 |
-| --- | --- | --- |
-| `EMBEAT_ROOT` | `../Embeat` | Embeat ML 后端仓库路径（含 `infer`） |
-| `QDRANT_URL` | `http://127.0.0.1:6333` | Qdrant 地址（远程部署可改为服务器地址） |
-| `QDRANT_API_KEY` | 空 | Qdrant API Key（如启用） |
-| `QDRANT_COLLECTION` | `spotify_tracks` | 使用的集合名 |
-| `QDRANT_TIMEOUT` | `30` | Qdrant 请求超时（秒） |
-| `NETEASE_API_URL` | 空 | 界面默认填写的网易云兼容 API 地址 |
-| `KUGOU_API_URL` | 空 | 界面默认填写的酷狗兼容 API 地址 |
-| `PROXY_URL` | 空 | 界面默认填写的 HTTP 代理（本机直连被拦截时使用） |
-| `UI_HOST` | `0.0.0.0` | 网页服务监听地址 |
-| `UI_PORT` | `8765` | 网页服务端口 |
-| `INVITE_CODE` | 空 | 注册邀请码，留空允许开放注册 |
-| `AUTH_ENABLED` | `true` | 是否启用账号登录/注册；`false` 时访问级别由 `PAIRING_CODE` 决定 |
-| `PAIRING_CODE` | 空 | `AUTH_ENABLED=false` 时的访问控制：留空为开放模式（任何人直接可用，适合公开公益），设为固定码则为配对模式（浏览器首次访问需输入配对码） |
+| 变量                  | 默认值                    | 说明                                                                                                                        |
+| --------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `EMBEAT_ROOT`       | `../Embeat`             | Embeat ML 后端仓库路径（含`infer`）                                                                                       |
+| `QDRANT_URL`        | `http://127.0.0.1:6333` | Qdrant 地址（远程部署可改为服务器地址）                                                                                     |
+| `QDRANT_API_KEY`    | 空                        | Qdrant API Key（如启用）                                                                                                    |
+| `QDRANT_COLLECTION` | `spotify_tracks`        | 使用的集合名                                                                                                                |
+| `QDRANT_TIMEOUT`    | `30`                    | Qdrant 请求超时（秒）                                                                                                       |
+| `NETEASE_API_URL`   | 空                        | 界面默认填写的网易云兼容 API 地址                                                                                           |
+| `KUGOU_API_URL`     | 空                        | 界面默认填写的酷狗兼容 API 地址                                                                                             |
+| `PROXY_URL`         | 空                        | 界面默认填写的 HTTP 代理（本机直连被拦截时使用）                                                                            |
+| `UI_HOST`           | `0.0.0.0`               | 网页服务监听地址                                                                                                            |
+| `UI_PORT`           | `8765`                  | 网页服务端口                                                                                                                |
+| `INVITE_CODE`       | 空                        | 注册邀请码，留空允许开放注册                                                                                                |
+| `AUTH_ENABLED`      | `true`                  | 是否启用账号登录/注册；`false` 时访问级别由 `PAIRING_CODE` 决定                                                         |
+| `PAIRING_CODE`      | 空                        | `AUTH_ENABLED=false` 时的访问控制：留空为开放模式（任何人直接可用），设为固定码则为配对模式（浏览器首次访问需输入配对码） |
 
 ## 启动
 
@@ -147,3 +147,11 @@ conda run -n embeat python -m pip install -r requirements.txt
 ```powershell
 conda run -n embeat python -m unittest discover -s tests -q
 ```
+
+## 致谢
+
+本项目感谢以下开源项目的支持：
+
+- [gdstudio-org/Embeat](https://github.com/gdstudio-org/Embeat) — 原始 Embeat 项目，本界面复用了其 ML 推荐逻辑与数据库结构。
+- [NeteaseCloudMusicApiEnhanced/api-enhanced](https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced) — 网易云兼容 API 服务，用于登录与歌单写入。
+- [MakcRe/KuGouMusicApi](https://github.com/MakcRe/KuGouMusicApi) — 酷狗兼容 API 服务，用于登录与歌单写入。
