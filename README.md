@@ -82,6 +82,7 @@ Qdrant 未启动时，脚本会以 `QDRANT_DIR` 下的 `embeat_qdrant_db` 作为
 - 页面先展示 Qdrant 中的候选版本和实际艺人名。
 - 选择候选后使用 Spotify Track ID 精确执行推荐。
 - Track2Vec 未开源时，歌单关联召回自动跳过，其余召回正常工作。
+- 暂时不支持仅搜索歌手名（必须输入歌曲名）。
 
 ## 保存到网易云或酷狗歌单
 
