@@ -1,6 +1,6 @@
 # Embeat UI
 
-Embeat 本地网页界面。前端提供搜索、按流派/每周发现浏览、多曲电台、历史记录，并可将推荐结果保存到网易云或酷狗歌单。推荐逻辑复用 Embeat ML 后端（需自行准备）和 Qdrant 向量数据库。
+Embeat 本地网页界面。前端提供搜索、按流派/每周发现浏览、多曲电台、历史记录，并可将推荐结果保存到网易云或酷狗歌单。推荐逻辑调用 [Embeat ML 后端](https://github.com/gdstudio-org/Embeat)（需自行准备）和 Qdrant 向量数据库。
 
 ## 目录结构
 
@@ -153,6 +153,6 @@ conda run -n embeat python -m unittest discover -s tests -q
 
 本项目感谢以下开源项目的支持：
 
-- [gdstudio-org/Embeat](https://github.com/gdstudio-org/Embeat) — 原始 Embeat 项目，本界面复用了其 ML 推荐逻辑与数据库结构。
+- [gdstudio-org/Embeat](https://github.com/gdstudio-org/Embeat) — 原始 Embeat 项目，本界面调用了其 ML 推荐逻辑与数据库结构。
 - [NeteaseCloudMusicApiEnhanced/api-enhanced](https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced) — 网易云兼容 API 服务，用于登录与歌单写入。
 - [MakcRe/KuGouMusicApi](https://github.com/MakcRe/KuGouMusicApi) — 酷狗兼容 API 服务，用于登录与歌单写入。
