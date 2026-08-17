@@ -5,6 +5,7 @@ import hashlib
 import json
 import re
 import secrets
+import sqlite3
 import sys
 import threading
 import time
@@ -31,6 +32,13 @@ if str(EMBEAT_INFER_DIR) not in sys.path:
 from Embeat import EmbeatDatabase, qdrant_models  # noqa: E402
 from export_manager import ExportManager  # noqa: E402
 from app_database import AppDatabase  # noqa: E402
+from artist_aliases import (  # noqa: E402
+    build_artist_alias_maps,
+    load_curated_aliases,
+    load_musicbrainz_aliases,
+    merge_artist_alias_sources,
+    normalize_artist_key,
+)
 from kugou_client import KugouClient  # noqa: E402
 from music_metadata import MusicMetadataResolver  # noqa: E402
 from music_matching import (  # noqa: E402
@@ -51,40 +59,53 @@ except ImportError:
     zh_convert = None
 
 
-def normalize_artist_key(value: str) -> str:
-    """Normalize artist lookup keys without changing their displayed spelling."""
-    return re.sub(r"\s+", " ", str(value or "").strip()).casefold()
-
-
 def load_artist_aliases() -> tuple[dict[str, str], dict[str, str]]:
-    """Load editable English/Chinese artist aliases used across both services."""
-    english_to_chinese = {
-    "Joyce Cheng": "郑欣宜", "Gin Lee": "李幸倪", "Mag Lam": "林欣彤",
-    "Hins Cheung": "张敬轩", "Alfred Hui": "许廷铿", "Jason Chan": "陈柏宇",
-    "Alan Po": "布志纶", "Candy Lo": "卢巧音", "Cloud 云浩影": "云浩影",
-    "JW": "王灏儿", "BOYZ": "关智斌", "ToNick": "ToNick",
-    "Beyond": "Beyond", "Frances Yip": "叶丽仪", "Hebe Tien": "田馥甄",
-    "HANA": "HANA菊梓乔",
+    """Merge curated aliases with the optional MusicBrainz lookup database."""
+    built_in_aliases = {
+        "Joyce Cheng": "郑欣宜",
+        "Gin Lee": "李幸倪",
+        "Mag Lam": "林欣彤",
+        "Hins Cheung": "张敬轩",
+        "Alfred Hui": "许廷铿",
+        "Jason Chan": "陈柏宇",
+        "Alan Po": "布志纶",
+        "Candy Lo": "卢巧音",
+        "Cloud 云浩影": "云浩影",
+        "JW": "王灏儿",
+        "BOYZ": "关智斌",
+        "ToNick": "ToNick",
+        "Beyond": "Beyond",
+        "Frances Yip": "叶丽仪",
+        "Hebe Tien": "田馥甄",
+        "HANA": "HANA菊梓乔",
     }
     alias_path = APP_DIR / "data" / "chinese_singers_extended.json"
+    curated_aliases: dict[str, str] = {}
     try:
-        items = json.loads(alias_path.read_text(encoding="utf-8"))
-        for item in items:
-            english = str(item.get("english") or "").strip()
-            chinese = str(item.get("chinese") or "").strip()
-            if english and chinese:
-                english_to_chinese[english] = chinese
+        curated_aliases = load_curated_aliases(alias_path)
     except (OSError, ValueError, TypeError) as exc:
         print(f"Failed to load artist aliases from {alias_path}: {exc}", flush=True)
-    normalized_english_to_chinese = {
-        normalize_artist_key(english): chinese for english, chinese in english_to_chinese.items()
-        if normalize_artist_key(english) and chinese
-    }
-    chinese_to_english = {
-        normalize_artist_key(chinese): english for english, chinese in english_to_chinese.items()
-        if chinese and english and chinese != english
-    }
-    return normalized_english_to_chinese, chinese_to_english
+
+    mb_path_value = CONFIG.mb_lookup_path
+    mb_path = Path(mb_path_value).expanduser() if mb_path_value else APP_DIR / "data" / "mb_lookup.db"
+    mb_aliases: dict[str, str] = {}
+    try:
+        mb_aliases = load_musicbrainz_aliases(
+            mb_path,
+            lambda value: zh_convert(value, locale="zh-cn") if zh_convert else value,
+        )
+    except (OSError, ValueError, TypeError, sqlite3.Error) as exc:
+        print(f"Failed to load MusicBrainz artist aliases from {mb_path}: {exc}", flush=True)
+
+    curated = merge_artist_alias_sources((built_in_aliases, curated_aliases))
+    merged = merge_artist_alias_sources((built_in_aliases, curated_aliases), (mb_aliases,))
+    if mb_path.is_file():
+        print(
+            f"Loaded artist aliases: {len(curated)} curated, "
+            f"{len(merged) - len(curated)} added from MusicBrainz, {len(merged)} total.",
+            flush=True,
+        )
+    return build_artist_alias_maps(merged)
 
 
 ARTIST_ZH_ALIASES, ARTIST_EN_ALIASES = load_artist_aliases()
@@ -361,6 +382,10 @@ class EmbeatService:
 
         candidates: dict[str, dict[str, Any]] = {}
         query_variants = self._variants(track_name)
+        artist_variants = self._artist_variants(artist_name) if artist_name else []
+        normalized_artist_variants = {
+            normalize_artist_key(item) for item in artist_variants
+        }
         def perform(database: EmbeatDatabase) -> None:
             for query in query_variants:
                 records, _ = database.client.scroll(
@@ -390,15 +415,25 @@ class EmbeatService:
             candidate_artist = str(payload.get("artist_name") or "")
             track_score = max(self._similarity(query, candidate_track) for query in query_variants)
             artist_score = 0.0
-            if artist_name:
-                artist_variants = self._artist_variants(artist_name)
+            artist_exact = False
+            if artist_variants:
+                artist_exact = normalize_artist_key(candidate_artist) in normalized_artist_variants
                 artist_score = max(
                     self._similarity(query, candidate_artist)
                     for query in artist_variants
                 )
+                if not artist_exact and artist_score < 0.72:
+                    continue
             popularity = float(payload.get("popularity") or 0.0)
             rank_score = track_score * 0.72 + artist_score * 0.23 + popularity * 0.05
-            ranked.append(self._pack_track(payload, match_score=rank_score))
+            packed = self._pack_track(payload, match_score=rank_score)
+            packed["_artist_exact"] = artist_exact
+            ranked.append(packed)
+
+        if artist_variants and any(item["_artist_exact"] for item in ranked):
+            ranked = [item for item in ranked if item["_artist_exact"]]
+        for item in ranked:
+            item.pop("_artist_exact", None)
 
         ranked.sort(key=lambda item: (item["match_score"], item["popularity"]), reverse=True)
         return ranked[:limit]
@@ -413,6 +448,109 @@ class EmbeatService:
             if item and item not in variants:
                 variants.append(item)
         return variants
+
+    def _resolve_artist(self, database: EmbeatDatabase, artist_name: str) -> dict[str, Any]:
+        variants = self._artist_variants(artist_name)
+        normalized_variants = {normalize_artist_key(item) for item in variants}
+        candidates: dict[int, dict[str, Any]] = {}
+        for query in variants:
+            records, _ = database.client.scroll(
+                collection_name=database.collection_name,
+                scroll_filter=qdrant_models.Filter(
+                    must=[
+                        qdrant_models.FieldCondition(
+                            key="artist_name",
+                            match=qdrant_models.MatchText(text=query),
+                        )
+                    ]
+                ),
+                limit=100,
+                with_payload=True,
+                with_vectors=False,
+            )
+            for record in records:
+                payload = record.payload or {}
+                artist_idx = int(payload.get("artist_idx") or 0)
+                resolved_name = str(payload.get("artist_name") or "").strip()
+                if artist_idx <= 0 or not resolved_name:
+                    continue
+                score = max(self._similarity(item, resolved_name) for item in variants)
+                exact = normalize_artist_key(resolved_name) in normalized_variants
+                popularity = float(payload.get("popularity") or 0.0)
+                current = candidates.get(artist_idx)
+                if current is None or (exact, score, popularity) > (
+                    current["exact"],
+                    current["score"],
+                    current["popularity"],
+                ):
+                    candidates[artist_idx] = {
+                        "artist_idx": artist_idx,
+                        "artist_name": resolved_name,
+                        "exact": exact,
+                        "score": score,
+                        "popularity": popularity,
+                    }
+
+        ranked = sorted(
+            candidates.values(),
+            key=lambda item: (item["exact"], item["score"], item["popularity"]),
+            reverse=True,
+        )
+        if not ranked or (not ranked[0]["exact"] and ranked[0]["score"] < 0.62):
+            raise LookupError("数据库中未找到该歌手")
+        if (
+            len(ranked) > 1
+            and not ranked[0]["exact"]
+            and ranked[0]["score"] - ranked[1]["score"] < 0.04
+        ):
+            names = "、".join(item["artist_name"] for item in ranked[:3])
+            raise LookupError(f"歌手名称存在歧义，请输入更完整的名称：{names}")
+        return ranked[0]
+
+    def recommend_artist(self, artist_name: str, limit: int = 20) -> dict[str, Any]:
+        artist_name = artist_name.strip()
+        if not artist_name:
+            raise ValueError("歌手名不能为空")
+
+        started = time.perf_counter()
+
+        def perform(database: EmbeatDatabase) -> tuple[dict[str, Any], Any, list[dict[str, Any]]]:
+            resolved = self._resolve_artist(database, artist_name)
+            representative = database.find_query_record_by_artist(
+                artist_idx=resolved["artist_idx"]
+            )
+            if representative is None:
+                raise LookupError("数据库中没有足够的该歌手歌曲用于生成推荐")
+            representative_payload = representative.payload or {}
+            representative_id = str(representative_payload.get("track_id") or "")
+            if representative_id:
+                result = database.search_entry(track_id=representative_id, top_k=limit)
+            else:
+                result = database.search_entry(
+                    artist_idx=resolved["artist_idx"], top_k=limit
+                )
+            return resolved, representative, result
+
+        resolved, representative, result = self._qdrant_call(perform)
+        resolved_name = str(resolved["artist_name"])
+        artist_name_zh = ARTIST_ZH_ALIASES.get(
+            normalize_artist_key(resolved_name),
+            zh_convert(resolved_name, locale="zh-cn") if zh_convert else resolved_name,
+        )
+        representative_track = self._pack_track(representative.payload or {})
+        return {
+            "mode": "artist",
+            "artist": {
+                "input_name": artist_name,
+                "artist_idx": int(resolved["artist_idx"]),
+                "artist_name": resolved_name,
+                "artist_name_zh": artist_name_zh,
+                "artist_genres": representative_track.get("artist_genres", ""),
+            },
+            "representative_track": representative_track,
+            "tracks": [self._pack_track(item) for item in result],
+            "elapsed_ms": round((time.perf_counter() - started) * 1000),
+        }
 
     def recommend(self, track_id: str, limit: int = 20) -> dict[str, Any]:
         track_id = track_id.strip()
@@ -1145,6 +1283,29 @@ class RequestHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path.startswith("/api/"):
                 user = self._require_user()
+            if parsed.path == "/api/recommend/artist":
+                query = parse_qs(parsed.query)
+                name = query.get("name", [""])[0]
+                limit = self._bounded_int(query.get("limit", ["20"])[0], 1, 50)
+                result = require_service().recommend_artist(name, limit)
+                artist = result.get("artist") or {}
+                display_name = str(
+                    artist.get("artist_name_zh") or artist.get("artist_name") or name
+                )
+                require_service().app_db.add_history(
+                    user["id"],
+                    "artist_recommend",
+                    f"歌手电台：{display_name}",
+                    {
+                        "mode": "artist",
+                        "artist": artist,
+                        "representative_track": result.get("representative_track"),
+                        "elapsed_ms": result.get("elapsed_ms", 0),
+                    },
+                    result.get("tracks"),
+                )
+                self._json(200, result)
+                return
             if parsed.path == "/api/search":
                 query = parse_qs(parsed.query)
                 name = query.get("name", [""])[0]

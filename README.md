@@ -8,6 +8,7 @@ Embeat 本地网页界面。前端提供搜索、按流派/每周发现浏览、
 embeat-ui/
 ├── server.py          # 主服务（HTTP API + 静态页面）
 ├── config.py          # 运行时配置（环境变量 / .env）
+├── artist_aliases.py  # 中英文艺人别名映射（含 MusicBrainz 数据加载）
 ├── kugou_client.py    # 酷狗兼容 API 客户端
 ├── app_database.py    # SQLite 用户 / 凭据 / 历史 / 偏好存储
 ├── music_metadata.py  # Apple 元数据解析
@@ -39,6 +40,7 @@ embeat-ui/
 | `NETEASE_API_URL`   | 空                        | 界面默认填写的网易云兼容 API 地址                                                                                           |
 | `KUGOU_API_URL`     | 空                        | 界面默认填写的酷狗兼容 API 地址                                                                                             |
 | `PROXY_URL`         | 空                        | 界面默认填写的 HTTP 代理（本机直连被拦截时使用）                                                                            |
+| `MB_LOOKUP_PATH`    | 空                        | MusicBrainz 别名数据库（`mb_lookup.db`）路径；留空时自动使用 `data/mb_lookup.db`                                         |
 | `UI_HOST`           | `0.0.0.0`               | 网页服务监听地址                                                                                                            |
 | `UI_PORT`           | `8765`                  | 网页服务端口                                                                                                                |
 | `INVITE_CODE`       | 空                        | 注册邀请码，留空允许开放注册                                                                                                |
@@ -78,11 +80,12 @@ Qdrant 未启动时，脚本会以 `QDRANT_DIR` 下的 `embeat_qdrant_db` 作为
 
 ## 搜索策略
 
-- 曲名搜索会自动尝试简体和繁体。
-- 页面先展示 Qdrant 中的候选版本和实际艺人名。
+- 主页支持“歌曲”“歌手”“歌曲+歌手”三种查询方式。
+- 曲名搜索会自动尝试简体和繁体，并先展示 Qdrant 中的候选版本和实际艺人名。
+- 歌手推荐支持中英文艺人名；后端会先解析为 Qdrant 中的标准艺人和 `artist_idx`，然后基于该歌手曲目的整体声学特征生成推荐。
+- “歌曲+歌手”会使用艺人别名缩小候选范围；唯一候选直接推荐，存在录音室、Live 或翻唱等多版本时由用户确认。
 - 选择候选后使用 Spotify Track ID 精确执行推荐。
 - Track2Vec 未开源时，歌单关联召回自动跳过，其余召回正常工作。
-- 暂时不支持仅搜索歌手名（必须输入歌曲名）。
 
 ## 保存到网易云或酷狗歌单
 
@@ -120,7 +123,7 @@ Qdrant 未启动时，脚本会以 `QDRANT_DIR` 下的 `embeat_qdrant_db` 作为
 - 推荐结果可请求 20 或 50 条；搜索候选和推荐结果均可选择每页显示 5、10 或 20 条，切换候选页时已勾选的多曲种子不会丢失。
 - 可按召回来源、流派、最低热度过滤，并按匹配度、热度或种子覆盖排序。
 - 最近搜索、推荐、电台和导出记录按用户写入 SQLite，可在登录后的页面查看和导出；旧版本浏览器历史会在首次登录后自动迁移并清理。
-- `data/chinese_singers_extended.json` 会在后端启动时加载，用于中英文艺人别名搜索和网易云匹配。
+- 后端启动时加载 `data/chinese_singers_extended.json`、`data/chinese_singers_generated.json` 与 MusicBrainz 别名库（`MB_LOOKUP_PATH`），合并为中英文艺人别名映射，用于歌手搜索、歌手推荐和网易云/酷狗匹配；JSON 条目优先级高于 MusicBrainz。
 
 ## 移动端与发现入口
 

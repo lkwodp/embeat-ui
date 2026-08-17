@@ -27,16 +27,25 @@
         <div class="theme-picker" data-theme-picker><button class="theme-picker-button" type="button" title="切换界面主题" aria-label="切换界面主题" aria-haspopup="menu" aria-expanded="false"><span aria-hidden="true">◐</span></button><div class="theme-menu hidden" role="menu" aria-label="界面主题"></div></div>
       </div>
 
-      <form id="search-form" class="search-form">
-        <label for="track-name">歌曲</label>
-        <div class="input-wrap">
-          <span aria-hidden="true">⌕</span>
-          <input id="track-name" name="track-name" placeholder="小幸运" autocomplete="off" required>
+      <form id="search-form" class="search-form" data-mode="song">
+        <div class="query-mode" role="radiogroup" aria-label="推荐查询方式">
+          <label><input type="radio" name="query-mode" value="song" checked><span>歌曲</span></label>
+          <label><input type="radio" name="query-mode" value="artist"><span>歌手</span></label>
+          <label><input type="radio" name="query-mode" value="track_artist"><span>歌曲+歌手</span></label>
         </div>
-        <label for="artist-name">艺人 <small>可选</small></label>
-        <div class="input-wrap">
-          <span aria-hidden="true">♪</span>
-          <input id="artist-name" name="artist-name" placeholder="田馥甄" autocomplete="off">
+        <div id="track-field" class="query-field">
+          <label for="track-name">歌曲</label>
+          <div class="input-wrap">
+            <span aria-hidden="true">⌕</span>
+            <input id="track-name" name="track-name" placeholder="小幸运" autocomplete="off" required>
+          </div>
+        </div>
+        <div id="artist-field" class="query-field hidden">
+          <label for="artist-name">艺人 <small id="artist-hint"></small></label>
+          <div class="input-wrap">
+            <span aria-hidden="true">♪</span>
+            <input id="artist-name" name="artist-name" placeholder="周杰伦 / Jay Chou" autocomplete="off">
+          </div>
         </div>
         <button id="search-button" class="primary-button" type="submit">搜索歌曲</button>
       </form>
@@ -85,8 +94,8 @@
           <div class="record"><div class="record-label"><span></span></div></div>
           <div class="sound-bars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
         </div>
-        <h2>从一首熟悉的歌开始</h2>
-        <p>输入曲名，选择数据库中的准确版本。</p>
+        <h2 id="empty-title">从一首熟悉的歌开始</h2>
+        <p id="empty-copy">输入曲名，选择数据库中的准确版本。</p>
       </section>
 
       <section id="candidate-view" class="content-view hidden" aria-live="polite">

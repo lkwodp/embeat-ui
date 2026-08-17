@@ -31,6 +31,7 @@ _ENV_KEYS = (
     "INVITE_CODE",
     "AUTH_ENABLED",
     "PAIRING_CODE",
+    "MB_LOOKUP_PATH",
 )
 
 
@@ -90,6 +91,7 @@ class Config:
         self.invite_code = str(raw.get("INVITE_CODE") or "").strip()
         self.auth_enabled = _as_bool(raw.get("AUTH_ENABLED", "true"))
         self.pairing_code = str(raw.get("PAIRING_CODE") or "").strip()
+        self.mb_lookup_path = str(raw.get("MB_LOOKUP_PATH") or "").strip()
 
     def public_defaults(self) -> dict[str, str]:
         """Non-sensitive defaults exposed to the browser UI."""

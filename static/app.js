@@ -1,8 +1,13 @@
 const elements = {
   searchForm: document.querySelector('#search-form'),
+  queryModes: document.querySelectorAll('input[name="query-mode"]'),
+  trackField: document.querySelector('#track-field'),
+  artistField: document.querySelector('#artist-field'),
   idForm: document.querySelector('#id-form'),
   trackName: document.querySelector('#track-name'),
   artistName: document.querySelector('#artist-name'),
+  artistHint: document.querySelector('#artist-hint'),
+  searchButton: document.querySelector('#search-button'),
   trackId: document.querySelector('#track-id'),
   empty: document.querySelector('#empty-state'),
   candidates: document.querySelector('#candidate-view'),
@@ -81,6 +86,8 @@ const elements = {
   weeklyDiscover: document.querySelector('#weekly-discover'),
   genreSelect: document.querySelector('#genre-select'),
   genreBrowse: document.querySelector('#genre-browse'),
+  emptyTitle: document.querySelector('#empty-title'),
+  emptyCopy: document.querySelector('#empty-copy'),
 };
 
 let currentTracks = [];
@@ -93,6 +100,8 @@ let activeSources = new Set();
 let activeGenres = new Set();
 let selectedTrackIds = new Set();
 let currentDiscovery = null;
+let currentArtistQuery = null;
+let currentQueryMode = 'song';
 let genreOptionsLoaded = false;
 const platformReady = { netease: false, kugou: false };
 const NETEASE_STORAGE_KEY = 'embeat_ui_netease_config_v1'; // migration cleanup only
@@ -107,21 +116,42 @@ const sourceNames = {
   related_track: '歌单关联',
 };
 
+elements.queryModes.forEach((input) => input.addEventListener('change', () => {
+  if (input.checked) setQueryMode(input.value);
+}));
+
 elements.searchForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const name = elements.trackName.value.trim();
   const artist = elements.artistName.value.trim();
-  if (!name) return;
-  setLoading('正在搜索歌曲', '匹配数据库中的曲名与版本');
+  if (currentQueryMode === 'artist') {
+    if (!artist) return showToast('请输入歌手名');
+    return loadArtistRecommendations(artist);
+  }
+  if (!name) return showToast('请输入歌曲名');
+  if (currentQueryMode === 'track_artist' && !artist) {
+    return showToast('请同时输入歌手名');
+  }
+  const combined = currentQueryMode === 'track_artist';
+  setLoading(
+    combined ? '正在匹配歌曲与歌手' : '正在搜索歌曲',
+    combined ? '确认数据库中的准确版本' : '匹配数据库中的曲名与版本',
+  );
   try {
-    const params = new URLSearchParams({ name, artist, limit: '50' });
+    const params = new URLSearchParams({ name, artist: combined ? artist : '', limit: '50' });
     const data = await request(`/api/search?${params}`);
-    renderCandidates(data.tracks, name, artist);
+    if (combined && data.tracks.length === 1) {
+      showToast('已找到唯一匹配版本，正在生成推荐');
+      return loadRecommendations(data.tracks[0].track_id);
+    }
+    renderCandidates(data.tracks, name, combined ? artist : '');
   } catch (error) {
     showEmpty();
     showToast(error.message);
   }
 });
+
+setQueryMode('song');
 
 elements.idForm.addEventListener('submit', (event) => {
   event.preventDefault();
@@ -180,6 +210,9 @@ elements.multiSeedButton.addEventListener('click', loadMultiSeedRecommendations)
 elements.resultLimit.addEventListener('change', () => {
   if (currentDiscovery?.type === 'weekly') return loadWeeklyDiscovery();
   if (currentDiscovery?.type === 'genre') return loadGenreDiscovery(currentDiscovery.genre);
+  if (currentArtistQuery) {
+    return loadArtistRecommendations(currentArtistQuery.input_name || currentArtistQuery.artist_name);
+  }
   return currentSeeds.length > 1
     ? loadRecommendationsForSeeds(currentSeeds.map((seed) => seed.track_id))
     : loadRecommendations(currentSeeds[0]?.track_id);
@@ -225,6 +258,23 @@ async function loadRecommendations(trackId) {
   }
 }
 
+async function loadArtistRecommendations(artistName) {
+  const name = String(artistName || '').trim();
+  if (!name) return showToast('请输入歌手名');
+  setLoading('正在生成歌手电台', `提取 ${name} 的整体声学特征`);
+  try {
+    const params = new URLSearchParams({
+      name,
+      limit: String(Number(elements.resultLimit.value) || 20),
+    });
+    const data = await request(`/api/recommend/artist?${params}`);
+    renderRecommendations(data);
+  } catch (error) {
+    showEmpty();
+    showToast(error.message);
+  }
+}
+
 async function loadRecommendationsForSeeds(trackIds, title = '') {
   const ids = Array.from(new Set(trackIds.filter(Boolean)));
   if (!ids.length) return showToast('请至少选择一首种子歌曲');
@@ -246,11 +296,15 @@ function loadMultiSeedRecommendations() {
 }
 
 function renderCandidates(tracks, name, artist) {
+  currentArtistQuery = null;
+  currentDiscovery = null;
   showView('candidates');
   elements.eyebrow.textContent = '歌曲搜索';
   elements.title.textContent = artist ? `${name} · ${artist}` : name;
   elements.meta.innerHTML = `<strong>${tracks.length}</strong> 个候选版本`;
-  elements.candidateSummary.textContent = tracks.length ? '选择准确的歌曲版本' : '没有找到匹配歌曲，可尝试繁体曲名、英文艺人名或 Spotify ID';
+  elements.candidateSummary.textContent = tracks.length
+    ? (artist ? '已按歌手缩小范围，请确认录音室、Live 或翻唱版本' : '选择准确的歌曲版本')
+    : '没有找到匹配歌曲，可尝试繁体曲名、英文艺人名或 Spotify ID';
   currentCandidateTracks = tracks;
   currentCandidatePage = 1;
   selectedCandidateIds = new Set();
@@ -278,32 +332,49 @@ function renderCandidatePage() {
 }
 
 function renderRecommendations(data) {
+  const artistMode = data?.mode === 'artist' && data?.artist;
   const seeds = Array.isArray(data?.seeds) ? data.seeds : (data?.seed ? [data.seed] : []);
-  if (!Array.isArray(data?.tracks) || !seeds.length) {
+  if (!Array.isArray(data?.tracks) || (!artistMode && !seeds.length)) {
     showToast('该历史记录缺少完整推荐结果，无法恢复');
     return false;
   }
   const tracks = data.tracks;
   const elapsed = Number(data.elapsed_ms || 0);
-  const seed = seeds[0];
-  currentSeeds = seeds;
+  const seed = seeds[0] || data.representative_track || {};
+  currentSeeds = artistMode ? [] : seeds;
+  currentArtistQuery = artistMode ? data.artist : null;
   currentDiscovery = null;
   currentTracks = tracks;
   selectedTrackIds = new Set(tracks.map((track) => track.track_id));
   currentPage = 1; activeSources = new Set(); activeGenres = new Set();
   showView('recommendations');
-  elements.eyebrow.textContent = '推荐结果';
-  elements.title.textContent = seeds.length > 1 ? `${seeds.length} 首种子电台` : seed.track_name;
+  elements.eyebrow.textContent = artistMode ? '歌手推荐' : '推荐结果';
+  elements.title.textContent = artistMode
+    ? (data.artist.artist_name_zh || data.artist.artist_name || data.artist.input_name)
+    : (seeds.length > 1 ? `${seeds.length} 首种子电台` : seed.track_name);
   elements.meta.innerHTML = `<strong>${tracks.length}</strong> 首 · ${elapsed} ms`;
-  elements.recommendSummary.textContent = seeds.length > 1 ? `融合 ${seeds.map((item) => item.track_name_zh).slice(0, 4).join('、')}${seeds.length > 4 ? '…' : ''}` : `基于 ${seed.artist_name} · ${seed.album_name}`;
-  elements.seedPanel.innerHTML = `
-    <div class="track-art"><span>${escapeHtml(initial(seed.track_name))}</span></div>
-    <div>
-      <h2>${seeds.length > 1 ? escapeHtml(`${seeds.length} 首歌曲共同作为种子`) : escapeHtml(seed.track_name)}</h2>
-      <p>${seeds.length > 1 ? escapeHtml(seeds.map((item) => `${item.track_name_zh} - ${item.artist_name_zh}`).slice(0, 5).join(' · ')) : `${escapeHtml(seed.artist_name)} · ${escapeHtml(seed.album_name)}`}</p>
-      <small>${seeds.length > 1 ? 'Multi-seed radio' : escapeHtml(seed.track_id)}</small>
-    </div>
-  `;
+  if (artistMode) {
+    const representative = data.representative_track || {};
+    elements.recommendSummary.textContent = `基于 ${data.artist.artist_name_zh || data.artist.artist_name} 的整体声学特征。代表曲目：${representative.track_name_zh || representative.track_name || '未知'}`;
+    elements.seedPanel.innerHTML = `
+      <div class="track-art"><span>♫</span></div>
+      <div>
+        <h2>${escapeHtml(data.artist.artist_name_zh || data.artist.artist_name || data.artist.input_name)}</h2>
+        <p>${escapeHtml(data.artist.artist_name)} · 歌手整体风格推荐</p>
+        <small>代表曲目：${escapeHtml(representative.track_name_zh || representative.track_name || '未知歌曲')}</small>
+      </div>
+    `;
+  } else {
+    elements.recommendSummary.textContent = seeds.length > 1 ? `融合 ${seeds.map((item) => item.track_name_zh).slice(0, 4).join('、')}${seeds.length > 4 ? '…' : ''}` : `基于 ${seed.artist_name} · ${seed.album_name}`;
+    elements.seedPanel.innerHTML = `
+      <div class="track-art"><span>${escapeHtml(initial(seed.track_name))}</span></div>
+      <div>
+        <h2>${seeds.length > 1 ? escapeHtml(`${seeds.length} 首歌曲共同作为种子`) : escapeHtml(seed.track_name)}</h2>
+        <p>${seeds.length > 1 ? escapeHtml(seeds.map((item) => `${item.track_name_zh} - ${item.artist_name_zh}`).slice(0, 5).join(' · ')) : `${escapeHtml(seed.artist_name)} · ${escapeHtml(seed.album_name)}`}</p>
+        <small>${seeds.length > 1 ? 'Multi-seed radio' : escapeHtml(seed.track_id)}</small>
+      </div>
+    `;
+  }
   elements.selectAll.checked = true;
   buildFilters();
   renderResultRows();
@@ -405,6 +476,7 @@ async function loadGenreDiscovery(requestedGenre = '') {
 
 function renderDiscovery(tracks, title, note, discovery = null) {
   currentSeeds = [];
+  currentArtistQuery = null;
   currentDiscovery = discovery;
   currentTracks = tracks;
   selectedTrackIds = new Set(tracks.map((track) => track.track_id));
@@ -763,12 +835,16 @@ function restoreHistoryItem(event) {
   if (item.type === 'genre' || item.type === 'weekly' || item.type === 'discover') {
     return renderDiscovery(item.data.tracks, item.data.discoveryTitle || item.title, item.data.note || '');
   }
+  if (item.type === 'artist_recommend') {
+    if (!item.data?.artist) return showToast('该歌手电台历史记录缺少歌手信息，无法恢复');
+    return renderRecommendations(item.data);
+  }
   if (item.type === 'recommend' || item.type === 'radio') return renderRecommendations(item.data);
   showToast('该类型的历史记录暂不支持恢复');
 }
 
 function historyKindLabel(kind) {
-  return ({search: '搜索', recommend: '单曲推荐', radio: '多曲电台', genre: '流派浏览', weekly: '每周发现', discover: '发现'})[kind] || '记录';
+  return ({search: '搜索', recommend: '单曲推荐', radio: '多曲电台', artist_recommend: '歌手电台', genre: '流派浏览', weekly: '每周发现', discover: '发现'})[kind] || '记录';
 }
 
 function exportHistory() {
@@ -792,9 +868,27 @@ function setLoading(title, detail) {
 
 function showEmpty() {
   showView('empty');
-  elements.eyebrow.textContent = '歌曲搜索';
-  elements.title.textContent = '选择一首歌';
+  elements.eyebrow.textContent = currentQueryMode === 'artist' ? '歌手推荐' : '歌曲搜索';
+  elements.title.textContent = currentQueryMode === 'artist' ? '选择一个歌手' : '选择一首歌';
   elements.meta.textContent = '';
+}
+
+function setQueryMode(mode) {
+  currentQueryMode = mode;
+  elements.queryModes.forEach((input) => { input.checked = input.value === mode; });
+  const track = elements.trackField.classList.toggle('hidden', mode === 'artist');
+  elements.artistField.classList.toggle('hidden', mode === 'song');
+  elements.trackName.required = mode !== 'artist';
+  elements.artistName.required = mode === 'artist';
+  elements.artistHint.textContent = mode === 'artist' ? '支持中英文与别名' : '可选，可缩小范围';
+  elements.searchButton.textContent = mode === 'artist' ? '搜索歌手' : '搜索歌曲';
+  elements.searchForm.dataset.mode = mode;
+  if (mode === 'song') {
+    elements.artistName.placeholder = '田馥甄';
+  } else {
+    elements.artistName.placeholder = '周杰伦 / Jay Chou';
+  }
+  return track;
 }
 
 function showView(name) {
