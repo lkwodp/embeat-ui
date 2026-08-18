@@ -2,6 +2,8 @@
 
 Embeat 本地网页界面。前端提供搜索、按流派/每周发现浏览、多曲电台、历史记录，并可将推荐结果保存到网易云或酷狗歌单。推荐逻辑调用 [Embeat ML 后端](https://github.com/gdstudio-org/Embeat)（需自行准备）和 Qdrant 向量数据库。
 
+> **FastAPI + React 重构版本**：https://github.com/lkwodp/embeat-ui-refactor
+
 ## 目录结构
 
 ```text
